@@ -1,7 +1,5 @@
-#include <stdlib.h>
 #include <unistd.h>
 #include <stdio.h>
-#include <string.h>
 
 void getinput()
 {
@@ -11,6 +9,7 @@ void getinput()
   printf("> "); 
   fflush(stdout);
 
+  /* read up to 0x120 bytes from standard input and place into buffer */
   read(0, buffer, 0x120); // overflow happens here
 
   printf("\ngot input: %s\n", buffer);
